@@ -77,7 +77,7 @@ xcodebuild -project DeviceMonitor-Examensarbete-AntonSmedberg.xcodeproj \
 ## Tests
 
 - Six unit tests cover storage reconciliation, status transitions, manually added devices, and view-model filtering.
-- UI smoke tests cover launch and the main screen title.
+- One UI smoke test covers launch and the main screen title.
 
 ```bash
 xcodebuild test \
