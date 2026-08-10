@@ -3,6 +3,8 @@ import SwiftData
 @testable import DeviceMonitor_Examensarbete_AntonSmedberg
 
 final class DeviceMonitor_Examensarbete_AntonSmedbergTests: XCTestCase {
+    private var retainedContainers: [ModelContainer] = []
+
     @MainActor
     func testStorageApplyRemovesStaleDevices() throws {
         let storage = try makeStorage()
@@ -74,6 +76,7 @@ final class DeviceMonitor_Examensarbete_AntonSmedbergTests: XCTestCase {
     func testStorageAddsStatusHistoryOnlyOnTransitions() throws {
         let storage = try makeStorage()
         let deviceID = UUID()
+        let staleLastSeen = Date(timeIntervalSince1970: 1_700_000_000)
         let offlineSnapshot = DeviceDTO(
             id: deviceID,
             name: "Sensor",
@@ -86,7 +89,7 @@ final class DeviceMonitor_Examensarbete_AntonSmedbergTests: XCTestCase {
             name: "Sensor",
             ipAddress: "192.168.1.20",
             isOnline: true,
-            lastSeen: .now
+            lastSeen: staleLastSeen
         )
 
         try storage.apply(devices: [offlineSnapshot])
@@ -153,6 +156,7 @@ final class DeviceMonitor_Examensarbete_AntonSmedbergTests: XCTestCase {
     @MainActor
     private func makeStorage() throws -> LocalStorageService {
         let container = try AppModelFactory.makeInMemoryModelContainer()
+        retainedContainers.append(container)
         return LocalStorageService(modelContext: container.mainContext)
     }
 }

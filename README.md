@@ -4,6 +4,10 @@ DeviceMonitor is an iOS demo app for monitoring network devices (for example cam
 
 This project is built as an exam/demo project with a modern iOS 26+ SwiftUI architecture and strict Swift 6 concurrency.
 
+<p align="center">
+  <img src="Documentation/Screenshots/device-monitor-dashboard.jpg" alt="DeviceMonitor dashboard showing online and offline network devices" width="360">
+</p>
+
 ## Tech Stack
 
 - Swift 6
@@ -72,12 +76,28 @@ xcodebuild -project DeviceMonitor-Examensarbete-AntonSmedberg.xcodeproj \
 
 ## Tests
 
-- Unit tests: `DeviceMonitor-Examensarbete-AntonSmedbergTests`
-- UI tests: `DeviceMonitor-Examensarbete-AntonSmedbergUITests`
+- Six unit tests cover storage reconciliation, status transitions, manually added devices, and view-model filtering.
+- UI smoke tests cover launch and the main screen title.
+
+```bash
+xcodebuild test \
+  -project DeviceMonitor-Examensarbete-AntonSmedberg.xcodeproj \
+  -scheme DeviceMonitor-Examensarbete-AntonSmedberg \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -only-testing:DeviceMonitor-Examensarbete-AntonSmedbergTests
+```
+
+The six unit tests were verified on an iPhone 17 Pro simulator with Xcode 26.6 on August 10, 2026.
+
+## Limitations
+
+- Device data comes from a deterministic mock service; the app does not discover or probe real network devices.
+- This is a portfolio and exam project, not a production network-monitoring or security tool.
+- The current deployment target is iOS 26.2, so it does not demonstrate backward compatibility with older iOS versions.
+- Status history is local SwiftData state and has no cloud sync or multi-device reconciliation.
 
 ## Notes
 
-- The app intentionally uses mock/local data only and is aimed at demo/prototype scenarios rather than production networking.
 - Previews use an in-memory SwiftData container so they stay isolated from the running app store.
 - Liquid Glass is used on controls where it fits best, while scrolling content cards remain standard surfaces for readability and performance.
 - The devices feature stays in one focused folder so routing, shared list UI, and modal flows remain easy to follow.

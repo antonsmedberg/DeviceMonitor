@@ -93,7 +93,7 @@ final class LocalStorageService: StorageServiceProtocol {
         _ dto: DeviceDTO,
         into existingDevices: inout DeviceMaps
     ) {
-        let snapshotTimestamp = dto.lastSeen ?? .now
+        let snapshotTimestamp = Date.now
 
         if let existing = existingDevices.byID[dto.id] ?? existingDevices.byIP[dto.ipAddress] {
             let previousID = existing.id
