@@ -1,5 +1,5 @@
 //
-//  DeviceMonitor_Examensarbete_AntonSmedbergApp.swift
+//  DeviceMonitorApp.swift
 //  DeviceMonitor-Examensarbete-AntonSmedberg
 //
 //  Created by Anton Smedberg on 2025-12-28.
@@ -45,7 +45,7 @@ enum AppModelFactory {
 }
 
 @main
-struct DeviceMonitor_Examensarbete_AntonSmedbergApp: App {
+struct DeviceMonitorApp: App {
     let modelContainer: ModelContainer?
     let deviceService: any DeviceServiceProtocol
     let startupError: String?

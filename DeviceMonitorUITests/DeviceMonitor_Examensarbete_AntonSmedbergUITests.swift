@@ -1,6 +1,6 @@
 import XCTest
 
-final class DeviceMonitor_Examensarbete_AntonSmedbergUITests: XCTestCase {
+final class DeviceMonitorUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }

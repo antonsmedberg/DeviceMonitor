@@ -1,19 +1,18 @@
 # DeviceMonitor
 
-DeviceMonitor is an iOS demo app for monitoring network devices (for example cameras and sensors) with a clear online/offline overview, status history, filtering, and search.
+![Build and Test](https://github.com/antonsmedberg/DeviceMonitor-Examensarbete/actions/workflows/build-and-test.yml/badge.svg)
+![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)
+![SwiftUI](https://img.shields.io/badge/SwiftUI-006BFF?style=flat-square&logo=swift&logoColor=white)
+![iOS](https://img.shields.io/badge/iOS-26+-000000?style=flat-square&logo=apple&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
-This project is built as an exam/demo project with a modern iOS 26+ SwiftUI architecture and strict Swift 6 concurrency.
+An iOS prototype for monitoring network devices with a clear online/offline overview, status history, filtering, and search.
 
-## Tech Stack
+## Screenshot
 
-- Swift 6
-- SwiftUI
-- SwiftData
-- iOS 26+
-- Swift 6 strict concurrency (`async/await`, `actor`, `@MainActor`)
-- Lean MVVM with a small service/storage boundary
+![DeviceMonitor screenshot](Media/screenshot.png)
 
-## Current Features
+## Features
 
 - Dark-first device dashboard with a refined blue-black gradient theme
 - Sticky status filter with native iOS 26 segmented picker behavior
@@ -27,10 +26,10 @@ This project is built as an exam/demo project with a modern iOS 26+ SwiftUI arch
 
 ## Architecture
 
-```text
-DeviceMonitor-Examensarbete-AntonSmedberg/
+```
+DeviceMonitor/
   App/
-    DeviceMonitor_Examensarbete_AntonSmedbergApp.swift
+    DeviceMonitorApp.swift
   Models/
     Device.swift
   Services/
@@ -55,25 +54,30 @@ DeviceMonitor-Examensarbete-AntonSmedberg/
     IPv4Validator.swift
 ```
 
+- **SwiftUI** for the view layer
+- **SwiftData** for persistence
+- **Swift 6 strict concurrency** (`async/await`, `actor`, `@MainActor`)
+- **MVVM** with separated service/storage/view-model boundaries
+
 ## Build and Run
 
-1. Open `DeviceMonitor-Examensarbete-AntonSmedberg.xcodeproj` in Xcode.
-2. Select the `DeviceMonitor-Examensarbete-AntonSmedberg` scheme.
+1. Open `DeviceMonitor.xcodeproj` in Xcode.
+2. Select the `DeviceMonitor` scheme.
 3. Run on an iPhone simulator.
 
 ### CLI build example
 
 ```bash
-xcodebuild -project DeviceMonitor-Examensarbete-AntonSmedberg.xcodeproj \
-  -scheme DeviceMonitor-Examensarbete-AntonSmedberg \
+xcodebuild -project DeviceMonitor.xcodeproj \
+  -scheme DeviceMonitor \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   build-for-testing
 ```
 
 ## Tests
 
-- Unit tests: `DeviceMonitor-Examensarbete-AntonSmedbergTests`
-- UI tests: `DeviceMonitor-Examensarbete-AntonSmedbergUITests`
+- Unit tests: `DeviceMonitorTests`
+- UI tests: `DeviceMonitorUITests`
 
 ## Notes
 

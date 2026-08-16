@@ -1,6 +1,6 @@
 import XCTest
 
-final class DeviceMonitor_Examensarbete_AntonSmedbergUITestsLaunchTests: XCTestCase {
+final class DeviceMonitorUITestsLaunchTests: XCTestCase {
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true
     }

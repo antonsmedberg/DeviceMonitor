@@ -1,8 +1,8 @@
 import XCTest
 import SwiftData
-@testable import DeviceMonitor_Examensarbete_AntonSmedberg
+@testable import DeviceMonitor
 
-final class DeviceMonitor_Examensarbete_AntonSmedbergTests: XCTestCase {
+final class DeviceMonitorTests: XCTestCase {
     private var containers: [ModelContainer] = []
 
     @MainActor
