@@ -1,0 +1,32 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Build
+      run: |
+        xcodebuild build \
+          -project DeviceMonitor.xcodeproj \
+          -scheme DeviceMonitor \
+          -destination 'platform=iOS Simulator,name=iPhone 17' \
+          CODE_SIGNING_ALLOWED=NO
+      
+    - name: Test
+      run: |
+        xcodebuild test \
+          -project DeviceMonitor.xcodeproj \
+          -scheme DeviceMonitor \
+          -destination 'platform=iOS Simulator,name=iPhone 17' \
+          -only-testing:DeviceMonitorTests \
+          CODE_SIGNING_ALLOWED=NO
