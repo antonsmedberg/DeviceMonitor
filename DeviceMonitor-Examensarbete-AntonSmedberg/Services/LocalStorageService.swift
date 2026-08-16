@@ -188,8 +188,6 @@ final class LocalStorageService: StorageServiceProtocol {
     }
 
     private func latestStatusEvent(for device: Device) -> StatusEvent? {
-        device.statusHistory.max { lhs, rhs in
-            lhs.timestamp < rhs.timestamp
-        }
+        device.statusHistory.last
     }
 }

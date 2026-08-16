@@ -3,6 +3,8 @@ import SwiftData
 @testable import DeviceMonitor_Examensarbete_AntonSmedberg
 
 final class DeviceMonitor_Examensarbete_AntonSmedbergTests: XCTestCase {
+    private var containers: [ModelContainer] = []
+
     @MainActor
     func testStorageApplyRemovesStaleDevices() throws {
         let storage = try makeStorage()
@@ -153,6 +155,7 @@ final class DeviceMonitor_Examensarbete_AntonSmedbergTests: XCTestCase {
     @MainActor
     private func makeStorage() throws -> LocalStorageService {
         let container = try AppModelFactory.makeInMemoryModelContainer()
+        containers.append(container)
         return LocalStorageService(modelContext: container.mainContext)
     }
 }
