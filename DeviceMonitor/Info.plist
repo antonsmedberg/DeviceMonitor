@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>DeviceMonitor scans your Wi‑Fi network to find and show the status of your devices — for example your router, printer or NAS — and checks whether they respond. Nothing leaves your phone.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_http._tcp</string>
+		<string>_https._tcp</string>
+		<string>_ssh._tcp</string>
+		<string>_sftp-ssh._tcp</string>
+		<string>_airplay._tcp</string>
+		<string>_raop._tcp</string>
+		<string>_hap._tcp</string>
+		<string>_homekit._tcp</string>
+		<string>_ipp._tcp</string>
+		<string>_ipps._tcp</string>
+		<string>_printer._tcp</string>
+		<string>_pdl-datastream._tcp</string>
+		<string>_smb._tcp</string>
+		<string>_afpovertcp._tcp</string>
+		<string>_googlecast._tcp</string>
+		<string>_spotify-connect._tcp</string>
+		<string>_companion-link._tcp</string>
+		<string>_device-info._tcp</string>
+		<string>_workstation._tcp</string>
+		<string>_rfb._tcp</string>
+		<string>_sonos._tcp</string>
+		<string>_hue._tcp</string>
+		<string>_matter._tcp</string>
+		<string>_apple-mobdev2._tcp</string>
+		<string>_rdlink._tcp</string>
+		<string>_daap._tcp</string>
+		<string>_mqtt._tcp</string>
+		<string>_nvstream._tcp</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>
