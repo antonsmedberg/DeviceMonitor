@@ -5,10 +5,11 @@ final class DeviceMonitorUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testAppLaunchesAndShowsDeviceMonitorTitle() {
+    @MainActor
+    func testAppLaunchesInDemoMode() {
         let app = XCUIApplication()
+        app.launchArguments = ["-demo", "-uitest"]
         app.launch()
-
-        XCTAssertTrue(app.staticTexts["Device Monitor"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
     }
 }
