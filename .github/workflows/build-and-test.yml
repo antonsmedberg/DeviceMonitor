@@ -2,31 +2,495 @@ name: Build and Test
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches: ['**']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  SCHEME: DeviceMonitor
+  PROJECT: DeviceMonitor.xcodeproj
+  DERIVED_DATA: ${{ github.workspace }}/.derivedData
 
 jobs:
-  build-and-test:
-    runs-on: macos-latest
-    
+  ios27:
+    name: iOS 27 (Xcode 27.1)
+    runs-on: xcode-27
+    timeout-minutes: 90
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      
-    - name: Build
-      run: |
-        xcodebuild build \
-          -project DeviceMonitor.xcodeproj \
-          -scheme DeviceMonitor \
-          -destination 'platform=iOS Simulator,name=iPhone 17' \
-          CODE_SIGNING_ALLOWED=NO
-      
-    - name: Test
-      run: |
-        xcodebuild test \
-          -project DeviceMonitor.xcodeproj \
-          -scheme DeviceMonitor \
-          -destination 'platform=iOS Simulator,name=iPhone 17' \
-          -only-testing:DeviceMonitorTests \
-          CODE_SIGNING_ALLOWED=NO
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1
+        run: |
+          set -euo pipefail
+          echo "Available Xcode installations:"
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s /Applications/Xcode_27.1.app
+          sudo xcodebuild -runFirstLaunch
+          xcodebuild -version
+          swift --version
+
+      - name: Ensure Metal toolchain
+        run: |
+          set -euo pipefail
+          if ! xcrun -sdk iphoneos metal --version; then
+            xcodebuild -downloadComponent metalToolchain
+            xcrun -sdk iphoneos metal --version
+          fi
+
+      - name: Pick simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            if xcrun simctl list runtimes && xcrun simctl list devices available -j > /tmp/devices.json; then
+              break
+            fi
+            echo "simctl failed (attempt $attempt); retrying after a short wait"
+            sleep 10
+            if [ "$attempt" = "4" ]; then exit 1; fi
+          done
+          DEST="$(python3 - <<'PY'
+          import json, re
+          data = json.load(open('/tmp/devices.json'))
+          candidates = []
+          for runtime, devices in data['devices'].items():
+              if 'iOS' not in runtime:
+                  continue
+              m = re.search(r'iOS-(\d+)-(\d+)', runtime)
+              ver = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+              for d in devices:
+                  name = d['name']
+                  if not name.startswith('iPhone') or not d.get('isAvailable', False):
+                      continue
+                  n = re.search(r'iPhone (\d+)', name)
+                  gen = int(n.group(1)) if n else 0
+                  score = (ver, gen, 'Max' not in name, 'Pro' in name, name)
+                  candidates.append((score, name, d['udid']))
+          if not candidates:
+              raise SystemExit('No available iPhone simulator found')
+          candidates.sort()
+          score, name, udid = candidates[-1]
+          print(f'id={udid}')
+          import sys
+          sys.stderr.write(f'Picked {name} ({udid}) runtime iOS {score[0][0]}.{score[0][1]}\n')
+          PY
+          )"
+          echo "destination=platform=iOS Simulator,$DEST" >> "$GITHUB_OUTPUT"
+          echo "Destination: platform=iOS Simulator,$DEST"
+
+      - name: Build
+        id: build
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "${{ steps.sim.outputs.destination }}" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            | tee build.log | grep -E "error:|warning:|BUILD|Compiling|Linking|Metal" || true
+          grep -q "\*\* TEST BUILD SUCCEEDED \*\*" build.log
+
+      - name: Check compiled app icon
+        run: |
+          set -euo pipefail
+          APP="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/DeviceMonitor.app"
+          plutil -extract CFBundleIcons xml1 -o - "$APP/Info.plist"
+          xcrun assetutil --info "$APP/Assets.car" > assetutil-info.json
+          grep -i '"AppIcon' assetutil-info.json > appicon-renditions.txt
+          head -n 20 appicon-renditions.txt
+
+      - name: Render app icon appearances
+        if: always()
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          ICTOOL="$(dirname "$(xcode-select -p)")/Applications/Icon Composer.app/Contents/Executables/ictool"
+          [ -x "$ICTOOL" ] || { echo "ictool not found at $ICTOOL"; exit 0; }
+          "$ICTOOL" --version || true
+          mkdir -p icon-renders
+          for R in Default Dark TintedLight TintedDark ClearLight ClearDark; do
+            "$ICTOOL" DeviceMonitor/AppIcon.icon --export-image --output-file "icon-renders/AppIcon-$R.png" \
+              --platform iOS --rendition "$R" --width 1024 --height 1024 --scale 1 || echo "FAILED: $R"
+          done
+
+      - name: Upload app icon renders
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-icon-renders-${{ github.run_number }}
+          path: icon-renders
+          if-no-files-found: ignore
+
+      - name: Launch smoke test
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          DEST="${{ steps.sim.outputs.destination }}"
+          UDID="${DEST#*id=}"
+          APP="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/DeviceMonitor.app"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" "$APP"
+          START="$(date '+%Y-%m-%d %H:%M:%S')"
+          xcrun simctl launch --console-pty "$UDID" Anton.DeviceMonitor > app-console.log 2>&1 &
+          LAUNCH_PID=$!
+          sleep 25
+          kill "$LAUNCH_PID" 2>/dev/null || true
+          xcrun simctl terminate "$UDID" Anton.DeviceMonitor 2>/dev/null || true
+          echo "::group::App console (first 25 s)"
+          tail -n 200 app-console.log
+          echo "::endgroup::"
+          echo "::group::Unified log for DeviceMonitor"
+          xcrun simctl spawn "$UDID" log show --start "$START" --predicate 'process == "DeviceMonitor"' --style compact 2>/dev/null | grep -v -E "^$" | tail -n 300
+          echo "::endgroup::"
+          python3 .github/scripts/print-crash-reports.py app-console.log
+
+      # Runs after a failed app icon check too, so one CI round reports both.
+      - name: Unit tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "${{ steps.sim.outputs.destination }}" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -only-testing:DeviceMonitorTests \
+            -resultBundlePath "$DERIVED_DATA/UnitTests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee test.log | grep -E "error:|Test Case|Test case|Test Suite|passed|failed|TEST" || true
+          grep -q "\*\* TEST EXECUTE SUCCEEDED \*\*" test.log
+
+      - name: Crash reports and failure details
+        if: failure()
+        run: python3 .github/scripts/print-crash-reports.py test.log "$DERIVED_DATA/UnitTests.xcresult"
+
+      - name: Upload logs and result bundle on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode27-logs-${{ github.run_number }}
+          path: |
+            build.log
+            test.log
+            .derivedData/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+          include-hidden-files: true
+
+  screenshots:
+    name: Screenshots (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: xcode-27
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        device: ["iPhone 18 Pro Max", "iPad Pro 13-inch (M5)"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_27.1.app
+          sudo xcodebuild -runFirstLaunch
+          xcodebuild -version
+
+      - name: Ensure Metal toolchain
+        run: |
+          set -euo pipefail
+          xcrun -sdk iphoneos metal --version || xcodebuild -downloadComponent metalToolchain
+
+      # The renders travel in the screenshots artifact, so the commit job can place them in the repo.
+      - name: Render app icon appearances
+        if: startsWith(matrix.device, 'iPhone')
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          ICTOOL="$(dirname "$(xcode-select -p)")/Applications/Icon Composer.app/Contents/Executables/ictool"
+          [ -x "$ICTOOL" ] || { echo "ictool not found at $ICTOOL"; exit 0; }
+          mkdir -p exported/icon-renders
+          for R in Default Dark TintedLight TintedDark ClearLight ClearDark; do
+            "$ICTOOL" DeviceMonitor/AppIcon.icon --export-image --output-file "exported/icon-renders/AppIcon-$R.png" \
+              --platform iOS --rendition "$R" --width 1024 --height 1024 --scale 1 || echo "FAILED: $R"
+          done
+          ls -la exported/icon-renders
+
+      - name: Boot simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          UDID="$(python3 .github/scripts/find-simulator.py "${{ matrix.device }}")"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4 || true
+          # The keyboard's first-use tutorials cover the screen when a UI test first types; mark them as seen.
+          # The retry loops below mark them again after each reboot.
+          xcrun simctl spawn "$UDID" defaults write com.apple.Preferences DidShowContinuousPathIntroduction -bool true || true
+          xcrun simctl spawn "$UDID" defaults write com.apple.Preferences DidShowGestureKeyboardIntroduction -bool true || true
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build for testing
+        id: build
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            | tee build.log | grep -E "error:|BUILD" || true
+          grep -q "\*\* TEST BUILD SUCCEEDED \*\*" build.log
+
+      # Prints the UI activity of every failed test in a result bundle (each tap, swipe, wait and failure, repeats
+      # folded, the last 120 lines per test), so the log shows the steps that led to a failure.
+      - name: Prepare failure diagnostics
+        run: |
+          cat > "$RUNNER_TEMP/failed-activities.py" <<'PY'
+          import itertools, json, subprocess, sys
+
+          def results(*arguments):
+              output = subprocess.run(["xcrun", "xcresulttool", "get", "test-results", *arguments, "--path", sys.argv[1]],
+                                      capture_output=True, text=True, timeout=180)
+              try:
+                  return json.loads(output.stdout)
+              except ValueError:
+                  print((output.stderr or output.stdout)[:2000])
+                  return {}
+
+          def failed(nodes):
+              for node in nodes:
+                  if node.get("nodeType") == "Test Case" and node.get("result") == "Failed":
+                      yield node.get("nodeIdentifier") or node.get("nodeIdentifierURL")
+                  else:
+                      yield from failed(node.get("children", []))
+
+          def titles(activities, depth=0):
+              for activity in activities:
+                  yield "  " * depth + activity.get("title", "")
+                  yield from titles(activity.get("childActivities", []), depth + 1)
+
+          for test in failed(results("tests").get("testNodes", [])):
+              runs = results("activities", "--test-id", test).get("testRuns", [])
+              lines = [line for run in runs for line in titles(run.get("activities", []))]
+              lines = [line if (count := len(list(group))) == 1 else f"{line} (x{count})" for line, group in itertools.groupby(lines)]
+              print(f"::group::UI activity of {test}")
+              if len(lines) > 120:
+                  print(f"({len(lines) - 120} earlier lines left out)")
+              print("\n".join(lines[-120:]))
+              print("::endgroup::")
+          PY
+
+      - name: Capture screenshots
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -o pipefail
+          # Each appearance runs on its own, so a launch hang in one cannot discard the other's captures.
+          # Parallel test clones are the usual cause of "server died" launches, so run on the booted
+          # device itself and retry once after a reboot.
+          failed=0
+          for appearance in Light Dark; do
+            bundle="$DERIVED_DATA/Screenshots-$appearance.xcresult"
+            for attempt in 1 2; do
+              rm -rf "$bundle"
+              xcodebuild test-without-building \
+                -project "$PROJECT" \
+                -scheme "$SCHEME" \
+                -destination "id=$UDID" \
+                -derivedDataPath "$DERIVED_DATA" \
+                -parallel-testing-enabled NO \
+                -only-testing:DeviceMonitorUITests/ScreenshotTests/testCaptureScreens$appearance \
+                -resultBundlePath "$bundle" \
+                CODE_SIGNING_ALLOWED=NO \
+                | tee "screenshots-$appearance.log" | grep -E "error:|Test case|TEST" || true
+              if grep -q "\*\* TEST EXECUTE SUCCEEDED \*\*" "screenshots-$appearance.log"; then
+                continue 2
+              fi
+              python3 "$RUNNER_TEMP/failed-activities.py" "$bundle" || true
+              echo "::group::DeviceMonitor errors and presentation messages"
+              xcrun simctl spawn "$UDID" log show --last 10m --style compact --predicate 'process == "DeviceMonitor" AND (messageType == error OR messageType == fault OR eventMessage CONTAINS[c] "present")' 2>/dev/null | tail -n 120 || true
+              echo "::endgroup::"
+              echo "$appearance attempt $attempt failed; rebooting the simulator"
+              xcrun simctl shutdown "$UDID" || true
+              xcrun simctl boot "$UDID" || true
+              xcrun simctl bootstatus "$UDID" -b
+              xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4 || true
+              xcrun simctl spawn "$UDID" defaults write com.apple.Preferences DidShowContinuousPathIntroduction -bool true || true
+              xcrun simctl spawn "$UDID" defaults write com.apple.Preferences DidShowGestureKeyboardIntroduction -bool true || true
+            done
+            failed=1
+          done
+          exit $failed
+
+      - name: Export attachments
+        if: always()
+        run: |
+          mkdir -p exported
+          for bundle in "$DERIVED_DATA"/Screenshots-*.xcresult; do
+            [ -d "$bundle" ] || continue
+            xcrun xcresulttool export attachments --path "$bundle" --output-path "exported/$(basename "$bundle" .xcresult)" || true
+          done
+          # A query that times out leaves a spindump; print the app's main thread from each before it is deleted.
+          python3 - <<'PY' || true
+          import pathlib
+          for path in sorted(pathlib.Path("exported").rglob("*")):
+              if not path.is_file() or path.suffix in (".png", ".json", ".mp4", ".mov") or path.stat().st_size > 80_000_000:
+                  continue
+              lines = path.read_text(errors="replace").splitlines()
+              process = next((i for i, line in enumerate(lines) if line.split()[:2] == ["Process:", "DeviceMonitor"]), None)
+              if process is None:
+                  continue
+              main = next((i for i in range(process, len(lines)) if "com.apple.main-thread" in lines[i]), None)
+              if main is None:
+                  continue
+              print(f"::group::Main thread of DeviceMonitor in {path}")
+              print("\n".join(line[:200] for line in lines[main:main + 150]))
+              print("::endgroup::")
+          PY
+          # Keep the PNG captures and their manifests; failure recordings and spindumps run to hundreds of MB.
+          find exported -type f ! -name '*.png' ! -name 'manifest.json' -delete
+          ls -laR exported
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ matrix.device }}
+          path: exported
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # Drives every main feature on demo data. Runs after the screenshot artifact is uploaded,
+      # so its outcome and duration cannot affect screenshot placement.
+      - name: Run flow tests
+        id: flows
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 45
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -o pipefail
+          status=1
+          for attempt in 1 2; do
+            bundle="$DERIVED_DATA/Flows-$attempt.xcresult"
+            xcodebuild test-without-building \
+              -project "$PROJECT" \
+              -scheme "$SCHEME" \
+              -destination "id=$UDID" \
+              -derivedDataPath "$DERIVED_DATA" \
+              -parallel-testing-enabled NO \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 120 \
+              -maximum-test-execution-time-allowance 300 \
+              -only-testing:DeviceMonitorUITests/FlowTests \
+              -resultBundlePath "$bundle" \
+              CODE_SIGNING_ALLOWED=NO \
+              | tee "flows-$attempt.log" | grep -iE "error:|Test case|TEST" || true
+            if grep -q "\*\* TEST EXECUTE SUCCEEDED \*\*" "flows-$attempt.log"; then
+              status=0
+              break
+            fi
+            python3 "$RUNNER_TEMP/failed-activities.py" "$bundle" || true
+            echo "::group::DeviceMonitor errors and presentation messages"
+            xcrun simctl spawn "$UDID" log show --last 10m --style compact --predicate 'process == "DeviceMonitor" AND (messageType == error OR messageType == fault OR eventMessage CONTAINS[c] "present")' 2>/dev/null | tail -n 120 || true
+            echo "::endgroup::"
+            if [ "$attempt" = "1" ]; then
+              echo "Flow tests attempt 1 failed; rebooting the simulator"
+              xcrun simctl shutdown "$UDID" || true
+              xcrun simctl boot "$UDID" || true
+              xcrun simctl bootstatus "$UDID" -b
+              xcrun simctl spawn "$UDID" defaults write com.apple.Preferences DidShowContinuousPathIntroduction -bool true || true
+              xcrun simctl spawn "$UDID" defaults write com.apple.Preferences DidShowGestureKeyboardIntroduction -bool true || true
+            fi
+          done
+          {
+            echo "### Flow tests on ${{ matrix.device }}: $([ $status = 0 ] && echo passed || echo FAILED) (attempt $attempt)"
+            grep -iE "Test case .*FlowTests.*(passed|failed)" "flows-$attempt.log" | sed 's/^/- /' || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Upload flow test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-results-${{ matrix.device }}
+          path: |
+            flows-*.log
+            .derivedData/Flows-*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+          include-hidden-files: true
+
+  commit-screenshots:
+    name: Commit screenshots to the branch
+    needs: screenshots
+    if: always() && github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download screenshot artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: screenshots-*
+          path: artifacts
+
+      - name: Install optipng
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq optipng > /dev/null
+
+      - name: Place screenshots and app icon renders under Media
+        run: python3 .github/scripts/place-screenshots.py artifacts Media/screenshots Media/app-icon-renders
+
+      - name: Commit and push
+        env:
+          BRANCH: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- Media/screenshots Media/app-icon-renders && [ -z "$(git ls-files --others --exclude-standard Media/screenshots Media/app-icon-renders)" ]; then
+            echo "Screenshots and icon renders are unchanged"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            git add Media/screenshots
+            if [ -d Media/app-icon-renders ]; then
+              git add Media/app-icon-renders
+            fi
+            if git diff --cached --quiet; then
+              echo "Screenshots and icon renders are already on the branch"
+              exit 0
+            fi
+            git commit -q -m "screenshots: refresh simulator captures and app icon renders from CI" -m "Source: $RUN_URL"
+            if git push origin "HEAD:$BRANCH"; then
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt); re-applying on top of the latest branch head"
+            git fetch origin "$BRANCH"
+            git reset -q --hard "origin/$BRANCH"
+            python3 .github/scripts/place-screenshots.py artifacts Media/screenshots Media/app-icon-renders
+          done
+          exit 1
